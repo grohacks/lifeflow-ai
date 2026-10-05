@@ -1,0 +1,91 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: lifeflow-backend
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:lifeflow}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 30000
+      connection-timeout: 20000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        dialect: org.hibernate.dialect.MySQLDialect
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 15MB
+
+  jackson:
+    serialization:
+      fail-on-empty-beans: false
+
+lifeflow:
+  jwt:
+    secret: ${JWT_SECRET:lifeflow_emergency_digital_twin_super_secure_jwt_secret_key_2026_at_least_256_bits_length!}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000} # 24 hours
+
+  mqtt:
+    broker-url: tcp://${MQTT_HOST:localhost}:${MQTT_PORT:1883}
+    client-id: lifeflow-backend-core
+    keep-alive: 60
+    connection-timeout: 30
+
+  ai-service:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+
+  edge-gateway:
+    url: ${EDGE_GATEWAY_URL:http://localhost:8081}
+
+  storage:
+    upload-dir: ${UPLOAD_DIR:./data/uploads}
+
+  decision:
+    weights:
+      clinical-fit: 0.30
+      future-resource: 0.25
+      transport-utility: 0.25
+      patient-compatibility: 0.10
+      operational-capacity: 0.10
+      uncertainty-penalty: 0.15
+    thresholds:
+      spo2-drop-trigger: 3.0 # drop by 3% triggers reevaluation
+      hr-change-trigger: 15.0 # HR change by 15 bpm triggers reevaluation
+      eta-change-trigger-sec: 180 # ETA change by 3 minutes triggers reevaluation
+
+logging:
+  level:
+    root: INFO
+    com.lifeflow: DEBUG
+    org.springframework.security: INFO
+    org.flywaydb: INFO
