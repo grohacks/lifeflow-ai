@@ -68,7 +68,8 @@ export const MobileCamTransmitterPage: React.FC = () => {
 
   // Check if current context is secure (HTTPS or localhost)
   const isSecure = typeof window !== 'undefined' && (window.isSecureContext || window.location.protocol === 'https:');
-  const httpsUrl = `https://${window.location.hostname}:${window.location.port || '5173'}/mobile-cam`;
+  const portPart = window.location.port ? `:${window.location.port}` : '';
+  const httpsUrl = `https://${window.location.hostname}${portPart}/mobile-cam`;
 
   // Stop camera on unmount
   useEffect(() => {

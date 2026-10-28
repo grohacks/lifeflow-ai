@@ -187,7 +187,8 @@ export const PatientTwinPage: React.FC = () => {
   }, []);
 
   // Calculate local transmitter URL with patient caseId
-  const mobileTransmitterUrl = `${window.location.protocol}//${lanHost}:${window.location.port || '5173'}/mobile-cam?caseId=${caseId}`;
+  const portPart = window.location.port ? `:${window.location.port}` : '';
+  const mobileTransmitterUrl = `${window.location.protocol}//${lanHost}${portPart}/mobile-cam?caseId=${caseId}`;
 
   // Generate offline QR code whenever the mobile URL updates
   useEffect(() => {
@@ -1681,7 +1682,7 @@ export const PatientTwinPage: React.FC = () => {
             </Typography>
           </Paper>
           <Typography variant="caption" sx={{ color: '#3fb950', display: 'block', fontWeight: 600 }}>
-            ✓ Both phone and laptop must be on the same Wi-Fi network.
+            {window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" ? "✓ Both phone and laptop must be on the same Wi-Fi network." : "✓ Cloud enabled: Works over any Wi-Fi or Mobile Data."}
           </Typography>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', pt: 0 }}>
