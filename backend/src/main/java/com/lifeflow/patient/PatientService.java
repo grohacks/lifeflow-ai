@@ -263,7 +263,7 @@ public class PatientService {
                 try {
                     Map<String, Object> req = new HashMap<>();
                     req.put("model", modelName);
-                    req.put("prompt", "Describe this clinical or incident image concisely. Identify main objects, equipment, computer screens, keyboard, or body parts, and note any wounds or bleeding. Keep answer under 3 sentences.");
+                    req.put("prompt", "Describe this image in detail, noting any body parts, computer equipment, keyboards, wounds, or bleeding.");
                     req.put("images", List.of(base64Image));
                     req.put("stream", false);
                     req.put("keep_alive", "15m");
