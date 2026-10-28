@@ -9,7 +9,9 @@ from .schemas import VisionAnalysisResponse
 class LocalInjuryVisionAnalyzer:
     MODEL_NAME = "Ollama-Vision-Hybrid"
     MODEL_VERSION = "2.0.0"
-    OLLAMA_URL = "http://localhost:11434/api/generate"
+    import os
+    OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    OLLAMA_URL = f"{OLLAMA_BASE}/api/generate"
 
     def analyze_image(self, image_bytes: bytes) -> VisionAnalysisResponse:
         # 1. Attempt Ollama Vision Analysis if Ollama is running locally

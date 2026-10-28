@@ -9,8 +9,10 @@ class LocalOllamaAssistant:
     - Grounded exclusively in actual system state.
     - Uses local Ollama when running; deterministic RAG synthesis fallback when offline.
     """
-    OLLAMA_URL = "http://localhost:11434/api/generate"
-    OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
+    import os
+    OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    OLLAMA_URL = f"{OLLAMA_BASE}/api/generate"
+    OLLAMA_TAGS_URL = f"{OLLAMA_BASE}/api/tags"
     DEFAULT_MODEL = "llama3.2"
 
     def _get_active_model(self) -> str:

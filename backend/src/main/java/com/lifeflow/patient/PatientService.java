@@ -55,6 +55,9 @@ public class PatientService {
     @Value("${lifeflow.storage.upload-dir:./data/uploads}")
     private String uploadDir;
 
+    @Value("${OLLAMA_BASE_URL:http://localhost:11434}")
+    private String ollamaBaseUrl;
+
     private final java.util.Map<String, List<Map<String, Object>>> patientSnapsCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public void registerSnap(String caseId, Map<String, Object> snapPayload) {
@@ -254,7 +257,8 @@ public class PatientService {
             factory.setReadTimeout(20000);
             RestTemplate restTemplate = new RestTemplate(factory);
 
-            ResponseEntity<Map> response = restTemplate.postForEntity("http://localhost:11434/api/generate", entity, Map.class);
+            String targetOllamaUrl = (ollamaBaseUrl != null ? ollamaBaseUrl.replaceAll("/+$", "") : "http://localhost:11434") + "/api/generate";
+            ResponseEntity<Map> response = restTemplate.postForEntity(targetOllamaUrl, entity, Map.class);
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 String aiText = (String) response.getBody().get("response");
                 if (aiText != null && !aiText.isBlank()) {
@@ -815,3 +819,6 @@ public class PatientService {
         return dto;
     }
 }
+
+
+
