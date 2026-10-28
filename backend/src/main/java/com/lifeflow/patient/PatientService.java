@@ -58,8 +58,6 @@ public class PatientService {
     @Value("${OLLAMA_BASE_URL:https://existing-unfeeling-posted.ngrok-free.dev}")
     private String ollamaBaseUrl;
 
-    @Value("${GEMINI_API_KEY:}")
-    private String geminiApiKey;
 
     private final java.util.Map<String, List<Map<String, Object>>> patientSnapsCache = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -266,7 +264,7 @@ public class PatientService {
                 try {
                     Map<String, Object> req = new HashMap<>();
                     req.put("model", modelName);
-                    req.put("prompt", "Describe this image in detail, noting any body parts, computer equipment, keyboards, wounds, or bleeding.");
+                    req.put("prompt", "Describe this image in detail, noting any body parts, medical equipment, wounds, or bleeding.");
                     req.put("images", List.of(base64Image));
                     req.put("stream", false);
                     req.put("keep_alive", "15m");
@@ -417,60 +415,8 @@ public class PatientService {
         return res;
     }
 
-    private ImageVisionAnalysis queryGeminiVision(byte[] fileBytes, String customNotes) {
-        if (geminiApiKey == null || geminiApiKey.isBlank()) {
-            return null;
-        }
-        try {
-            String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + geminiApiKey.trim();
-            String base64Image = Base64.getEncoder().encodeToString(fileBytes);
-
-            Map<String, Object> textPart = Map.of("text", "Describe this image in detail. Identify whether it is computer hardware (keyboard, laptop, monitor, charger, cable), pre-hospital equipment, or a patient body part. Note if any wounds or bleeding are present. Keep answer under 3 sentences.");
-            Map<String, Object> inlineData = Map.of("mime_type", "image/jpeg", "data", base64Image);
-            Map<String, Object> imagePart = Map.of("inline_data", inlineData);
-
-            Map<String, Object> contentObj = Map.of("parts", List.of(textPart, imagePart));
-            Map<String, Object> reqBody = Map.of("contents", List.of(contentObj));
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(reqBody, headers);
-
-            SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-            factory.setConnectTimeout(4000);
-            factory.setReadTimeout(20000);
-            RestTemplate restTemplate = new RestTemplate(factory);
-
-            ResponseEntity<Map> resp = restTemplate.postForEntity(url, entity, Map.class);
-            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
-                List candidates = (List) resp.getBody().get("candidates");
-                if (candidates != null && !candidates.isEmpty()) {
-                    Map firstCandidate = (Map) candidates.get(0);
-                    Map cMap = (Map) firstCandidate.get("content");
-                    if (cMap != null) {
-                        List parts = (List) cMap.get("parts");
-                        if (parts != null && !parts.isEmpty()) {
-                            Map firstPart = (Map) parts.get(0);
-                            String text = (String) firstPart.get("text");
-                            if (text != null && !text.isBlank()) {
-                                log.info("Gemini Vision AI output: {}", text);
-                                return parseOllamaVisionResponse(text, fileBytes, customNotes);
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Gemini vision query failed ({}), falling back...", e.getMessage());
-        }
-        return null;
-    }
-
     public ImageVisionAnalysis runVisionAnalysis(byte[] fileBytes, String scanMode, String customNotes) {
-        ImageVisionAnalysis analysis = queryGeminiVision(fileBytes, customNotes);
-        if (analysis == null) {
-            analysis = queryOllamaVision(fileBytes, customNotes);
-        }
+        ImageVisionAnalysis analysis = queryOllamaVision(fileBytes, customNotes);
         if (analysis == null) {
             analysis = analyzeImageBytes(fileBytes, scanMode != null ? scanMode : "PATIENT_TRAUMA", customNotes);
         }
@@ -833,11 +779,8 @@ public class PatientService {
 
         String scanMode = mode != null ? mode.toUpperCase() : "PATIENT_TRAUMA";
 
-        // 1. Try Gemini Vision AI first, then local Ollama tunnel, then CV fallback
-        ImageVisionAnalysis analysis = queryGeminiVision(fileBytes, customNotes);
-        if (analysis == null) {
-            analysis = queryOllamaVision(fileBytes, customNotes);
-        }
+        // 1. Try local Ollama Vision AI model first (if running on system)
+        ImageVisionAnalysis analysis = queryOllamaVision(fileBytes, customNotes);
 
         // 2. High-precision colorimetric Computer Vision fallback (0ms latency, zero dependencies)
         if (analysis == null) {
