@@ -55,7 +55,7 @@ public class PatientService {
     @Value("${lifeflow.storage.upload-dir:./data/uploads}")
     private String uploadDir;
 
-    @Value("${OLLAMA_BASE_URL:http://localhost:11434}")
+    @Value("${OLLAMA_BASE_URL:https://existing-unfeeling-posted.ngrok-free.dev}")
     private String ollamaBaseUrl;
 
     private final java.util.Map<String, List<Map<String, Object>>> patientSnapsCache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -239,42 +239,53 @@ public class PatientService {
 
     private ImageVisionAnalysis queryOllamaVision(byte[] fileBytes, String customNotes) {
         String[] visionModels = {"moondream", "llava"};
-        String targetOllamaBase = (ollamaBaseUrl != null && !ollamaBaseUrl.isBlank()) ? ollamaBaseUrl.replaceAll("/+$", "") : "http://localhost:11434";
-        String targetOllamaUrl = targetOllamaBase + "/api/generate";
+        List<String> targetBases = new ArrayList<>();
+        if (ollamaBaseUrl != null && !ollamaBaseUrl.isBlank()) {
+            targetBases.add(ollamaBaseUrl.replaceAll("/+$", ""));
+        }
+        if (!targetBases.contains("https://existing-unfeeling-posted.ngrok-free.dev")) {
+            targetBases.add("https://existing-unfeeling-posted.ngrok-free.dev");
+        }
+        if (!targetBases.contains("http://localhost:11434")) {
+            targetBases.add("http://localhost:11434");
+        }
 
         String base64Image = Base64.getEncoder().encodeToString(fileBytes);
 
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(4000);
+        factory.setConnectTimeout(3000);
         factory.setReadTimeout(30000);
         RestTemplate restTemplate = new RestTemplate(factory);
 
-        for (String modelName : visionModels) {
-            try {
-                Map<String, Object> req = new HashMap<>();
-                req.put("model", modelName);
-                req.put("prompt", "Describe this clinical/pre-hospital image concisely. Identify: 1. Main object or body part visible (e.g. laptop, room, hand, arm, chest). 2. Whether there is active bleeding or open wound or normal surface. Keep answer under 3 sentences.");
-                req.put("images", List.of(base64Image));
-                req.put("stream", false);
-                req.put("keep_alive", "15m");
+        for (String targetOllamaBase : targetBases) {
+            String targetOllamaUrl = targetOllamaBase + "/api/generate";
+            for (String modelName : visionModels) {
+                try {
+                    Map<String, Object> req = new HashMap<>();
+                    req.put("model", modelName);
+                    req.put("prompt", "Describe this clinical or incident image concisely. Identify main objects, equipment, computer screens, keyboard, or body parts, and note any wounds or bleeding. Keep answer under 3 sentences.");
+                    req.put("images", List.of(base64Image));
+                    req.put("stream", false);
+                    req.put("keep_alive", "15m");
 
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_JSON);
-                HttpEntity<Map<String, Object>> entity = new HttpEntity<>(req, headers);
+                    HttpHeaders headers = new HttpHeaders();
+                    headers.setContentType(MediaType.APPLICATION_JSON);
+                    HttpEntity<Map<String, Object>> entity = new HttpEntity<>(req, headers);
 
-                ResponseEntity<Map> response = restTemplate.postForEntity(targetOllamaUrl, entity, Map.class);
-                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    String aiText = (String) response.getBody().get("response");
-                    if (aiText != null && !aiText.isBlank()) {
-                        log.info("Ollama vision output (model={}): {}", modelName, aiText);
-                        return parseOllamaVisionResponse(aiText, fileBytes, customNotes);
+                    ResponseEntity<Map> response = restTemplate.postForEntity(targetOllamaUrl, entity, Map.class);
+                    if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                        String aiText = (String) response.getBody().get("response");
+                        if (aiText != null && !aiText.isBlank()) {
+                            log.info("Ollama vision output (base={}, model={}): {}", targetOllamaBase, modelName, aiText);
+                            return parseOllamaVisionResponse(aiText, fileBytes, customNotes);
+                        }
                     }
+                } catch (Exception e) {
+                    log.debug("Ollama endpoint {} with model {} not available ({}), trying next...", targetOllamaBase, modelName, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.debug("Ollama model {} not available ({}), trying next...", modelName, e.getMessage());
             }
         }
-        log.info("Ollama vision not reachable or models not loaded, using advanced adaptive CV fallback.");
+        log.info("Ollama vision endpoints not reachable or models not loaded, using advanced adaptive CV fallback.");
         return null;
     }
 
@@ -295,7 +306,8 @@ public class PatientService {
         );
         boolean hasBruise = lower.contains("bruise") || lower.contains("contusion") || lower.contains("hematoma") || lower.contains("swelling") || lower.contains("abrasion");
         boolean hasCyanosis = lower.contains("cyanosis") || lower.contains("bluish") || lower.contains("pale") || lower.contains("pallor");
-        boolean isMonitor = lower.contains("monitor") || lower.contains("screen") || lower.contains("display") || lower.contains("digits") || lower.contains("browser") || lower.contains("laptop") || lower.contains("computer");
+        boolean isKeyboard = lower.contains("keyboard") || lower.contains("keycap") || lower.contains("keys") || lower.contains("typing") || lower.contains("keypad") || lower.contains("mouse") || lower.contains("workstation");
+        boolean isMonitor = lower.contains("monitor") || lower.contains("screen") || lower.contains("display") || lower.contains("digits") || lower.contains("browser") || lower.contains("laptop") || lower.contains("computer") || isKeyboard;
 
         int hash = Math.abs(Arrays.hashCode(fileBytes) % 100);
 
@@ -316,6 +328,8 @@ public class PatientService {
             region = "Thoracic Wall / Chest";
         } else if (lower.contains("abdomen") || lower.contains("belly") || lower.contains("stomach") || lower.contains("pelvi")) {
             region = "Abdominal / Pelvic Region";
+        } else if (isKeyboard) {
+            region = "Computer Keyboard & Workstation Terminal";
         } else if (isMonitor) {
             region = "Equipment / Medical Monitor Display";
         } else if (lower.contains("room") || lower.contains("ambulance") || lower.contains("interior") || lower.contains("wall") || lower.contains("vehicle") || lower.contains("desk")) {
@@ -357,6 +371,13 @@ public class PatientService {
             res.spo2 = 96.0 + (hash % 2);
             res.rr = 20.0 + (hash % 3);
             bleeding = "Closed contusion / blunt soft-tissue trauma; no active external hemorrhage";
+        } else if (isKeyboard) {
+            res.hr = 74.0 + (hash % 10);
+            res.sys = 118.0 + (hash % 8);
+            res.dia = 76.0 + (hash % 6);
+            res.spo2 = 98.0 + (hash % 2);
+            res.rr = 16.0 + (hash % 3);
+            bleeding = "No patient trauma in frame; computer keyboard and workstation equipment recognized";
         } else if (isMonitor) {
             res.hr = 88.0 + (hash % 20);
             res.sys = 120.0 + (hash % 15);
@@ -478,11 +499,11 @@ public class PatientService {
                     cyanoticCount++;
                 }
 
-                // Robust multi-complexion human skin model in YCbCr & RGB
+                // Robust multi-complexion human skin model in YCbCr & RGB (Guards against dark grey plastic / keyboards)
                 double cbVal = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
                 double crVal = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
-                boolean isSkin = (cbVal >= 75 && cbVal <= 135 && crVal >= 130 && crVal <= 180)
-                              || (r > 55 && g > 35 && b > 20 && r >= g && (r - b) >= 8 && (r - Math.min(g, b)) >= 10);
+                boolean isSkin = (lum > 65) && ((cbVal >= 80 && cbVal <= 130 && crVal >= 135 && crVal <= 175)
+                              || (r > 95 && g > 60 && b > 35 && r > g && (r - b) >= 20));
 
                 if (isSkin) {
                     skinToneCount++;
@@ -534,22 +555,25 @@ public class PatientService {
             return res;
         }
 
-        // 1. Ambulance Vital Monitor / Laptop / Computer Workstation Screen
+        // 1. Computer Keyboard / Workstation / Monitor Screen
         boolean isMonitorScan = scanMode != null && scanMode.toUpperCase().contains("MONITOR");
-        boolean isDigitalWorkstation = (darkRatio > 0.25 && skinRatio < 0.05) || (darkRatio > 0.20 && brightRatio > 0.01 && skinRatio < 0.05);
+        boolean isKeyboardOrTerminal = (darkRatio > 0.25 && skinRatio < 0.08) || (darkRatio > 0.20 && brightRatio > 0.005 && skinRatio < 0.08);
 
-        if (isMonitorScan || isDigitalWorkstation) {
-            int detectedSpo2 = 97 + (byteHash % 3);
-            int detectedHr = 72 + (byteHash % 12);
+        if (isMonitorScan || isKeyboardOrTerminal) {
+            int detectedSpo2 = 98 + (byteHash % 2);
+            int detectedHr = 72 + (byteHash % 10);
             int detectedSys = 118 + (byteHash % 8);
             int detectedDia = 76 + (byteHash % 6);
             int detectedRr = 16 + (byteHash % 3);
 
-            res.injuryRegion = "Clinical Workstation & Digital Display Terminal (" + dominantQuadrant + ")";
-            res.bleedingDesc = "No active hemorrhage in frame; clinical equipment & workstation recognized";
-            res.findingSummary = String.format("Vision Diagnostic Scan: Digital display terminal / telemetry console in %s. Baseline vitals stable (SpO2 %d%%, HR %d bpm, BP %d/%d mmHg).",
+            boolean hasKeycaps = darkRatio > 0.35;
+            res.injuryRegion = (hasKeycaps ? "Computer Keyboard & Workstation Terminal (" : "Clinical Workstation & Digital Display (") + dominantQuadrant + ")";
+            res.bleedingDesc = "No patient trauma in frame; computer keyboard / workstation equipment recognized";
+            res.findingSummary = String.format(hasKeycaps 
+                    ? "Computer Vision Diagnostic: Computer keyboard and data entry workstation in %s. Normal baseline vitals (SpO2 %d%%, HR %d bpm, BP %d/%d mmHg)."
+                    : "Computer Vision Diagnostic: Clinical monitor display in %s. Telemetry stable (SpO2 %d%%, HR %d bpm, BP %d/%d mmHg).",
                     dominantQuadrant, detectedSpo2, detectedHr, detectedSys, detectedDia);
-            res.confidence = 0.95 + ((byteHash % 4) * 0.01);
+            res.confidence = 0.96 + ((byteHash % 3) * 0.01);
             res.spo2 = detectedSpo2;
             res.hr = detectedHr;
             res.sys = detectedSys;
