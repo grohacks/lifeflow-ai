@@ -1,0 +1,36 @@
+services:
+  # 1. Spring Boot Core Backend
+  - type: web
+    name: lifeflow-backend
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_USE_SSL
+        value: "true"
+      - key: DB_MAX_POOL_SIZE
+        value: "5"
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: lifeflow-ai-service
+          property: host
+
+  # 2. FastAPI AI Service
+  - type: web
+    name: lifeflow-ai-service
+    env: docker
+    dockerfilePath: ai-service/Dockerfile
+    dockerContext: ai-service
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health

@@ -14,7 +14,7 @@ class WebSocketClientService {
 
   private initClient() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const brokerURL = `${protocol}//${window.location.host}/ws`;
+    const brokerURL = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}/ws`;
 
     this.client = new Client({
       brokerURL: brokerURL,
@@ -120,3 +120,5 @@ class WebSocketClientService {
 }
 
 export const wsService = new WebSocketClientService();
+
+
