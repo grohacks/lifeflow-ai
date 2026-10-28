@@ -78,11 +78,20 @@ export const CitizenSosPage: React.FC = () => {
   const [activeIncident, setActiveIncident] = useState<EmergencyIncident | null>(() => {
     try {
       const saved = localStorage.getItem('lifeflow_active_sos');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      if (parsed.status === 'RESOLVED' || parsed.status === 'CANCELLED') {
+        localStorage.removeItem('lifeflow_active_sos');
+        return null;
+      }
+      return parsed;
     } catch {
       return null;
     }
   });
+
+  const activeIncidentRef = useRef<EmergencyIncident | null>(activeIncident);
+  activeIncidentRef.current = activeIncident;
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Sync active incident to localStorage for phone lock/refresh persistence
@@ -292,8 +301,12 @@ export const CitizenSosPage: React.FC = () => {
   const [confirmingSmsSent, setConfirmingSmsSent] = useState<boolean>(false);
 
   const handleResetForm = () => {
+    activeIncidentRef.current = null;
     setActiveIncident(null);
-    localStorage.removeItem('lifeflow_active_sos');
+    try {
+      localStorage.removeItem('lifeflow_active_sos');
+      sessionStorage.removeItem('lifeflow_active_sos');
+    } catch {}
     setDescription('');
     setPhotoBase64(null);
     setSubmitError(null);
@@ -362,41 +375,44 @@ export const CitizenSosPage: React.FC = () => {
 
   // Real-time tracking synchronization (WebSocket + 2s Polling + Visibility wakeup)
   useEffect(() => {
+    let isCancelled = false;
+    const targetIncidentId = activeIncident?.id;
+
     // 1. WebSocket listeners on both /topic/incidents and /topic/alerts
     const unsubIncidents = wsService.subscribe('/topic/incidents', (updated: EmergencyIncident) => {
-      if (!updated) return;
-      if (activeIncident && updated.id === activeIncident.id) {
-        setActiveIncident((prev) => ({ ...prev, ...updated }));
-      } else if (!activeIncident && smsDraftOpened) {
-        // Automatically link incoming incident if citizen sent SMS via gateway
-        setActiveIncident(updated);
+      if (isCancelled || !updated) return;
+      if (activeIncidentRef.current && updated.id === activeIncidentRef.current.id) {
+        setActiveIncident((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       }
     });
 
     const unsubAlerts = wsService.subscribe('/topic/alerts', (updated: EmergencyIncident) => {
-      if (!updated) return;
-      if (activeIncident && updated.id === activeIncident.id) {
-        setActiveIncident((prev) => ({ ...prev, ...updated }));
-      } else if (!activeIncident && smsDraftOpened) {
-        setActiveIncident(updated);
+      if (isCancelled || !updated) return;
+      if (activeIncidentRef.current && updated.id === activeIncidentRef.current.id) {
+        setActiveIncident((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       }
     });
 
-    if (!activeIncident?.id) {
+    if (!targetIncidentId) {
       return () => {
+        isCancelled = true;
         unsubIncidents();
         unsubAlerts();
       };
     }
 
-    // 2. Fast 2-second background status poll
+    // 2. Fast 2-second background status poll with cancellation guard
     const pollStatus = async () => {
+      if (isCancelled || !activeIncidentRef.current || activeIncidentRef.current.id !== targetIncidentId) return;
       try {
-        const latest = await incidentApi.getById(activeIncident.id);
+        const latest = await incidentApi.getById(targetIncidentId);
+        if (isCancelled || !activeIncidentRef.current || activeIncidentRef.current.id !== targetIncidentId) return;
         if (latest) {
           setActiveIncident((prev) => {
-            if (!prev || prev.status !== latest.status || prev.etaMinutes !== latest.etaMinutes) {
-              return latest;
+            // NEVER resurrect if user reset or switched away from this case
+            if (!prev || prev.id !== targetIncidentId) return null;
+            if (prev.status !== latest.status || prev.etaMinutes !== latest.etaMinutes) {
+              return { ...prev, ...latest };
             }
             return prev;
           });
@@ -419,13 +435,14 @@ export const CitizenSosPage: React.FC = () => {
     window.addEventListener('focus', pollStatus);
 
     return () => {
+      isCancelled = true;
       unsubIncidents();
       unsubAlerts();
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', pollStatus);
     };
-  }, [activeIncident?.id, smsDraftOpened]);
+  }, [activeIncident?.id]);
 
   // Stepper state mapping
   const getStepIndex = (status: string) => {
